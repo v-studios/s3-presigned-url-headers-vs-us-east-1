@@ -1,0 +1,20 @@
+# Test using presigned URLs for upload to Paris.
+# In our app, it worked file to us-east-1 but not eu-west-3.
+#
+# npx sls deploy
+
+service: psurl
+
+custom:
+  region: ${opt:region, self:provider.region}
+
+provider:
+  name: aws
+  #region: us-east-1 # Virginia
+  #region: us-east-2 # Ohio
+  region: eu-west-3 # Paris
+
+resources:
+  Resources:
+    S3Assets:
+      Type: AWS::S3::Bucket
