@@ -5,12 +5,12 @@
 TL;DR:
 ======
 
-To create a pre-signed URL, we have to provide matching headers
-in the HTTP upload -- but us-east-1 doesn't require all of them, while
-other regions do.
+To create a presigned URL, we have to provide matching headers in the
+HTTP upload -- but us-east-1 doesn't require all of them, while other
+regions do.
 
-I Deploy to us-east-1
-=====================
+I Usually Deploy to us-east-1
+=============================
 
 I've done most of my development in us-east-1 since I lived in
 Northern Virginia and worked in the area; heck, I've probably ridden
@@ -18,19 +18,19 @@ past one of the unlabeled AWS datacenters along the W & OD bike tail
 in Loudon County.
 
 Our work for a certain US space agency hosted most most of our compute
-in us-east-1. We've done lots of apps that use pre-signed URLs to
+in us-east-1. We've done lots of apps that use presigned URLs to
 upload to S3, and they've worked fine.
 
-Another Region, New Problems
-============================
+New Region, New Problems
+========================
 
-I've never deployed to other regions (besides GovCloud) until
-recently. Now that I live in Spain, and wanted to deploy to a closer
-region -- Paris seemed proximate. So I configured my Serverless
-Framework to use eu-west-3, and it deployed fine there. But the
-pre-signed URLs broke: exact same code, just a different region. I
-then tried us-east-2 (Ohio), and had the same failures. It seems
-us-east-1 is "special", which is not good.
+Until recently, I hadn't deployed to other regions (besides GovCloud).
+I now live in Spain and want to deploy to a closer region -- Paris
+seemed proximate. So I configured my Serverless Framework to use
+eu-west-3, and it deployed fine there. But the presigned URLs broke:
+exact same code, just a different region. I then tried us-east-2
+(Ohio), and had the same failures. It seems us-east-1 is "special",
+which is not good.
 
 Python app, Distilled for Debugging
 ===================================
@@ -38,17 +38,18 @@ Python app, Distilled for Debugging
 My app's using Python and the boto3 library. I went down a rat-hole
 with S3 client specification and Configuration, and Signature methods
 to no avail. I also read that newly-created S3 buckets take a while to
-propate their DNS names, and seen this when I tried to PUT and got an
-HTTP Temporary Redirect from S3: changing the URL would surely
-invalidate the signature. But this turned out not to be the issue either.
+propagate their DNS names, and I've seen this when I tried to PUT and
+got an HTTP Temporary Redirect from S3: changing the URL would surely
+invalidate the signature. But these turned out not to be the problem
+either.
 
-The code of my app is actually in a Lambda where the Execution Role
-gives it permission to upload to S3. To debug the problem I extracted
-the main upload logic here.
+My real app's code runs in a Lambda where the Execution Role gives it
+permission to upload to S3. To debug the problem I extracted the main
+presigned URL upload logic here so I can run it locally.
 
 I want to be able to accept an HTTP ``Content-Type`` on upload, and
-``Content-Disposition`` so downloads will be named properly; I also
-want to store the uploaded file's name in the S3 object metadata, and
+``Content-Disposition`` downloads will be named properly; I also want
+to store the uploaded file's name in the S3 object metadata, and
 perhaps other info like the file's owner. The `boto3 docs for
 put_object
 <https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3/client/put_object.html#>`_
@@ -63,9 +64,9 @@ list of similar values I can provide to ``Params`` in
 Headers
 =======
 
-As I said, I started working in us-east-1. My app (and curl) sett the
-HTTP ``Content-Type`` header upon upload to the pre-signed URL, so I
-was obliged to include those in the pre-signed URL::
+As I said, I started working in us-east-1. My client app (and curl) set the
+HTTP ``Content-Type`` header upon upload to the presigned URL, so I
+was obliged to include those in the presigned URL::
 
   def _get_presigned_url_put(bucket, key, filename, mimetype, expire_seconds):
       params = {
@@ -89,89 +90,95 @@ in us-east-2 or eu-west-3, it failed. This was repeatable.
 Headers Required in Most Regions
 ================================
 
-I could set characteristics of the file in the pre-signed URL,
-sometimes in ``Params`` and sometimes in ``Metadata``, and sometimes
-both places (which wins?)::
+I could set "system defined" characteristics of the file in the
+presigned URL in ``Params``, and "user defined" attributes in
+``Metadata``::
 
-      content_disposition = f'attachment; filename="{filename}"'
-      http_method = "PUT"
-      mimetype = mimetypes.guess_type(filename)[0]
-      metadata = {
-          "filename": filename,
-          "magic_words": "Squeamish Ossifrage",
-      }
-      url = s3c.generate_presigned_url(
-          ClientMethod="put_object",
-          ExpiresIn=3600,
-          HttpMethod=http_method,
-          Params={
-              "Bucket": bucket,
-              "Key": filename,
-              "ContentDisposition": content_disposition,
-              "ContentType": mimetype,
-              "Metadata": metadata,
-          },
-      )
+    content_disposition = f'attachment; filename="{filename}"'
+    http_method = "PUT"
+    mimetype = mimetypes.guess_type(filename)[0]
+    metadata = {
+        "filename": filename,
+        "magic_words": "Squeamish Ossifrage",
+    }
+    s3c = boto3.client("s3", region_name=region)
+    url = s3c.generate_presigned_url(
+        ClientMethod="put_object",
+        ExpiresIn=3600,
+        HttpMethod=http_method,
+        Params={
+            "Bucket": bucket,
+            "Key": filename,
+            "ContentDisposition": content_disposition,
+            "ContentType": mimetype,
+            "Metadata": metadata,
+        },
+    )
 
-The ``Params`` ``ContentDisposition`` and ``ContentType`` had to be
-matched on the upload by properly-spelled HTTP headers
-``Content-Disposition`` and ``Content-Type``. The custom settings in
-``Metadata`` had to be matched with key-value pairs, where the key
-names were downcased and prefixed by ``x-amz-meta-``.
+The ``Params`` attributes (``ContentDisposition`` and
+``ContentType``) had to be matched on the upload by properly-spelled
+HTTP headers ``Content-Disposition`` and ``Content-Type``. The custom
+settings in ``Metadata`` had to be matched with key-value pairs, where
+the key names were downcased and prefixed by ``x-amz-meta-``::
 
-To make it easier for the client uploader, I return not only the
-pre-signed URL but also the headers it will need to supply, with the
-right spelling. Code::
-
-      headers = {
-          "Content-Type": mimetype,
-          "Content-Disposition": content_disposition,
-      }
-      headers.update({f"x-amz-meta-{k.lower()}": v for k, v in metadata.items()})
-      return {
-          "Method": http_method,
-          "Headers": headers,
-          "URL": url,
-      }
+    headers = {
+        "Content-Type": mimetype,
+        "Content-Disposition": content_disposition,
+    }
+    headers.update({f"x-amz-meta-{k.lower()}": v for k, v in metadata.items()})
 
 Note that if I change the ``Params`` I'll need to update the
 ``headers`` to match, since they're spelled differently than the HTTP
 header names.
 
+To make it easier for the client uploader, I return not only the
+presigned URL but also the headers it will need to supply, with the
+right spelling for HTTP.
+
+
 Verify us-east-1 is special, more profligate
 ============================================
 
-If we run the code, it tries three identically-configured buckets in
-three regions: us-east-1, us-east-2, eu-west-3. The upload succeeds in
-each case.
+I use the `<serverless.yml>`_ file to define my infrastructure,
+extracted from my larger app. I deploy three times, one for each
+region in which I want an S3 bucket.
 
-But if we comment out the part where we add headers for the custom
+If we run the code, it tries the three identically-configured buckets
+in three regions: us-east-1, us-east-2, eu-west-3. The upload succeeds
+in each case.
+
+But if we suppress the part where we add headers for the custom
 ``Metadata`` items::
 
-      # headers.update({f"x-amz-meta-{k.lower()}": v for k, v in metadata.items()})
+    headers = {}
+    # headers = {f"x-amz-meta-{k.lower()}": v for k, v in metadata.items()}
 
 we see that us-east-1 is happy to accept the file, but the other
-regions are not (text folded for readability):
+regions are not::
 
   ./psurl.py
 
-  ./psurl.py
   region='us-east-1' method='PUT'
   headers={'Content-Type': 'image/png', 'Content-Disposition': 'attachment; filename="fire.png"'}
-  put_url[:90]='https://psurlparis-dev-s3assets-121vx030ey5xk.s3.amazonaws.com/fire.png?AWSAccessKeyId=AKI'
+  put_url[:90]='https://psurl-dev-s3assets-111savi37w6pt.s3.amazonaws.com/fire.png?AWSAccessKeyId=AKIASGHG'
   res.status_code=200 res.reason='OK'
 
   region='us-east-2' method='PUT'
   headers={'Content-Type': 'image/png', 'Content-Disposition': 'attachment; filename="fire.png"'}
-  put_url[:90]='https://psurlparis-dev-s3assets-1ukyhiu24hfzb.s3.amazonaws.com/fire.png?X-Amz-Algorithm=AW'
+  put_url[:90]='https://psurl-dev-s3assets-1btlz2jfl73sj.s3.amazonaws.com/fire.png?X-Amz-Algorithm=AWS4-HM'
   res.status_code=403 res.reason='Forbidden'
-  ERROR b'<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>SignatureDoesNotMatch</Code><Message>T'
+  ### ERROR b'<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>SignatureDoesNotMatch</Code><Message>T'
 
   region='eu-west-3' method='PUT'
   headers={'Content-Type': 'image/png', 'Content-Disposition': 'attachment; filename="fire.png"'}
-  put_url[:90]='https://psurlparis-dev-s3assets-rbwl0uyqt96g.s3.amazonaws.com/fire.png?X-Amz-Algorithm=AWS'
+  put_url[:90]='https://psurl-dev-s3assets-19rz00qdke5v6.s3.amazonaws.com/fire.png?X-Amz-Algorithm=AWS4-HM'
   res.status_code=403 res.reason='Forbidden'
-  ERROR b'<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>SignatureDoesNotMatch</Code><Message>T'
-Resgtoring that line allows all regions to succeed.
+  ### ERROR b'<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>SignatureDoesNotMatch</Code><Message>T'
 
-As always, us-east-1 is a snowflake.
+Note that the URL for us-eat-1 starts with ``AWSAccessKeyId`` while
+the other regions' URL starts with ``X-Amz-Algorithm``. That's not what I'd
+expect.
+
+Restoring the ``headers`` for ``Metadata`` allows all regions to succeed again.
+
+As usual, us-east-1 is a snowflake.

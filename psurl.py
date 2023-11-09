@@ -80,7 +80,7 @@ if __name__ == "__main__":
         method = res["Method"]
         headers = res["Headers"]
         put_url = res["URL"]
-        print(f"{region=} {method=}\n{headers=}\n{put_url[:99]=}")
+        print(f"{region=} {method=}\n{headers=}\n{put_url[:90]=}")
         if method != "PUT":
             raise RuntimeError(f"{method=} not supported, only doing PUT now")
 
