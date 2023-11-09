@@ -6,14 +6,14 @@ import boto3  # I have boto3==1.28.79, Lambda has 1.27.1
 import requests
 
 REGION_BUCKETS = {
-    "us-east-1": "psurlparis-dev-s3assets-121vx030ey5xk",
-    "us-east-2": "psurlparis-dev-s3assets-1ukyhiu24hfzb",
-    "eu-west-3": "psurlparis-dev-s3assets-rbwl0uyqt96g",
+    "us-east-1": "psurl-dev-s3assets-111savi37w6pt",
+    "us-east-2": "psurl-dev-s3assets-1btlz2jfl73sj",
+    "eu-west-3": "psurl-dev-s3assets-19rz00qdke5v6",
 }
 
 
 def get_psurl(region, bucket, filename):
-    print(f"get_psurl: {region=} {bucket=}")
+    print(f"get_psurl: {region=} {bucket=} {filename=}")
 
     mimetype = mimetypes.guess_type(filename)[0]
 
@@ -22,7 +22,7 @@ def get_psurl(region, bucket, filename):
         # If I put anything in Metadata, upload fails in all but us-east-1.
         # To fix, the PUT must include these headers with x-amz-meta-KEY: VALUE
         "filename": filename,
-        "Content-Disposition": f"attachment; filename={filename}",
+        # "Content-Disposition": f"attachment; filename={filename}",
     }
     url = s3c.generate_presigned_url(
         ClientMethod="put_object",
@@ -46,7 +46,7 @@ def get_psurl(region, bucket, filename):
 
 
 def put_file(filename, headers, put_url):
-    print(f"Uploading {filename=} {headers=} {put_url[:99]}")
+    #print(f"Uploading {filename=} {headers=} {put_url[:99]}")
     with open(filename, "rb") as upload_file:
         content = upload_file.read()
         headers = headers
@@ -67,7 +67,8 @@ if __name__ == "__main__":
 
         put_url = res["URL"]
         headers = res["Headers"]
-        print(f"{headers=} {put_url[:99]=}")
+        print(f"{headers=}")
+        print(f"{put_url[:99]=}")
 
         aws_profile = os.environ["AWS_PROFILE"]
         del os.environ["AWS_PROFILE"]
