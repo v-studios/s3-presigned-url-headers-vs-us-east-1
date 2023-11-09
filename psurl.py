@@ -22,7 +22,7 @@ def get_psurl(region, bucket, filename):
         # If I put anything in Metadata, upload fails in all but us-east-1.
         # To fix, the PUT must include these headers with x-amz-meta-KEY: VALUE
         "filename": filename,
-        # "Content-Disposition": f"attachment; filename={filename}",
+        "Content-Disposition": f"attachment; filename={filename}",
     }
     url = s3c.generate_presigned_url(
         ClientMethod="put_object",
