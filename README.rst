@@ -47,11 +47,11 @@ My real app's code runs in a Lambda where the Execution Role gives it
 permission to upload to S3. To debug the problem I extracted the main
 presigned URL upload logic here so I can run it locally.
 
-I want to be able to accept an HTTP ``Content-Type`` on upload, and
-``Content-Disposition`` downloads will be named properly; I also want
-to store the uploaded file's name in the S3 object metadata, and
-perhaps other info like the file's owner. The `boto3 docs for
-put_object
+I want to be able to accept an HTTP ``Content-Type`` and
+``Content-Disposition`` on upload so downloads will be named properly;
+I also want to store the uploaded file's name in the S3 object
+metadata, and perhaps other info like the file's owner. The `boto3
+docs for put_object
 <https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3/client/put_object.html#>`_
 suggest that many headers may be sent to configure the uploaded
 object, like ``ContentType``, ``ContentDispostion`` that we use here.
@@ -90,7 +90,7 @@ in us-east-2 or eu-west-3, it failed. This was repeatable.
 Headers Required in Most Regions
 ================================
 
-I could set "system defined" characteristics of the file in the
+I can set "system defined" characteristics of the file in the
 presigned URL in ``Params``, and "user defined" attributes in
 ``Metadata``::
 
@@ -136,8 +136,8 @@ presigned URL but also the headers it will need to supply, with the
 right spelling for HTTP.
 
 
-Verify us-east-1 is special, more profligate
-============================================
+Verify us-east-1 is special, more promiscuous
+=============================================
 
 I use the `<serverless.yml>`_ file to define my infrastructure,
 extracted from my larger app. I deploy three times, one for each
@@ -175,7 +175,7 @@ regions are not::
   res.status_code=403 res.reason='Forbidden'
   ### ERROR b'<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>SignatureDoesNotMatch</Code><Message>T'
 
-Note that the URL for us-eat-1 starts with ``AWSAccessKeyId`` while
+Note that the URL for us-east-1 starts with ``AWSAccessKeyId`` while
 the other regions' URL starts with ``X-Amz-Algorithm``. That's not what I'd
 expect.
 
